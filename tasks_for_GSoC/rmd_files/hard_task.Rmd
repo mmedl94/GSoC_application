@@ -1,0 +1,265 @@
+---
+title: "the_hardest_task"
+output: html_document
+date: "2024-03-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, python = reticulate::eng_python)
+```
+
+```{r}
+# load reticulate
+if (!require("reticulate")) install.packages("reticulate")
+library(reticulate)
+```
+
+```{r}
+# check for python environment and create it if it doesn't exist
+env_name <- "r-pytourr"
+if (env_name %in% conda_list()$name==FALSE){
+  conda_create("r-pytourr")
+}
+use_condaenv("r-pytourr")
+
+# check for required packages and install if neeeded
+package_names <- py_list_packages(envname = "r-pytourr")
+required_packages <- c("pandas", "numpy", "matplotlib")
+for (package in required_packages){
+  if (package %in% package_names$package==FALSE){conda_install("r-pytourr", package)}
+}
+```
+
+```{python}
+# import python packages
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import tkinter as tk
+
+from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+from matplotlib.backend_bases import key_press_handler
+from matplotlib.figure import Figure
+```
+
+
+```{r}
+# Modify render_proj() so that the half_range is calculated by max(sqrt(rowSums(data^2))) or can be provided as arg
+render_proj_inter <- function(data, prj, half_range=NULL, axis_labels=NULL, obs_labels=NULL, limits=1, position="center"){
+  # Check dimensions ok
+  try(if (ncol(data) != nrow(prj))
+           stop("Number of columns of data don't match number of rows of prj"))
+  try(if(ncol(prj) != 2)
+           stop("Number of columns of prj needs to be 2"))
+
+  # Project data and scale into unit box
+  data_prj <- as.matrix(data) %*% as.matrix(prj)
+  if (is.null(half_range)){
+    half_range <- max(sqrt(rowSums(data_prj^2)))
+  }
+  data_prj <- data_prj/half_range
+  colnames(data_prj) <- c("P1", "P2")
+  data_prj <- data.frame(data_prj)
+
+  # Add observation labels
+  if (is.null(obs_labels))
+    obs_labels <- as.character(1:nrow(data))
+  data_prj$obs_labels <- obs_labels
+
+  # Axis scale
+  if (position == "center") {
+    axis_scale <- 2 * limits / 3
+    axis_pos <- 0
+  } else if (position == "bottomleft") {
+    axis_scale <- limits / 6
+    axis_pos <- -2 / 3 * limits
+  }
+  adj <- function(x) axis_pos + x * axis_scale
+
+  # Compute segments
+  axes <- data.frame(x1=adj(0), y1=adj(0),
+                     x2=adj(prj[, 1]), y2=adj(prj[, 2]))
+  # Make labels if missing
+  if (is.null(axis_labels))
+    axis_labels <- colnames(data)
+  rownames(axes) <- axis_labels
+
+  # Compute circle
+  theta <- seq(0, 2 * pi, length = 50)
+  circle <- data.frame(c1 = adj(cos(theta)), c2=adj(sin(theta)))
+
+  return(list(data_prj=data_prj, axes=axes, circle=circle))
+}
+```
+
+```{python}
+# Helper class that manages the lasso selection
+class SelectFromCollection:
+  def __init__(self, ax, collection, alpha_other=0.3):
+    # initialize parameters
+    self.canvas = ax.figure.canvas
+    self.collection = collection
+    self.alpha_other = alpha_other
+    
+    # Get coordinates and number of data points
+    self.xys = collection.get_offsets()
+    self.Npts = len(self.xys)
+    
+    # Get color of data points in RGB and construct data frame describing coloration
+    self.fc = collection.get_facecolors()
+    if len(self.fc) == 0:
+      raise ValueError('Collection must have a facecolor')
+    elif len(self.fc) == 1:
+      self.fc = np.tile(self.fc, (self.Npts, 1))
+    
+    # initialize lasso selector
+    self.lasso = LassoSelector(ax, onselect=self.onselect)
+    self.ind = []
+  
+  # onselect governs what happens with selected data points
+  # changes alpha of selected data points
+  # saves indices of selected data points
+  def onselect(self, verts):
+    path = Path(verts)
+    self.ind = np.nonzero(path.contains_points(self.xys))[0]
+    self.fc[:, -1] = self.alpha_other
+    self.fc[self.ind, -1] = 1
+    self.collection.set_facecolors(self.fc)
+    self.canvas.draw_idle()
+    
+  # governs what happens when disconnected (after pressing "enter")
+  def disconnect(self):
+    self.lasso.disconnect_events()
+    self.canvas.draw_idle()
+
+class lasso_selector(tk.Frame):
+  def __init__(self, parent, f, col_names, tour_history, half_range):
+    tk.Frame.__init__(self, parent)
+    
+    if len(tour_history.shape)==2:
+      tour_history = np.expand_dims(tour_history,axis=2)
+    if half_range == None:
+      print("Using adaptive half_range")
+    else:
+      print(f"Using half_range of {half_range}")
+    
+    limits = 1
+    alpha_other = 0.3
+    n_pts = f.shape[0]    
+    #Initialize self.obs_idx with all obs
+    self.obs_idx_ = np.arange(0,f.shape[0])
+    
+    fig, ax = plt.subplots(figsize=(10,10))
+    canvas = FigureCanvasTkAgg(fig)
+    canvas.draw()
+    canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+    toolbar = NavigationToolbar2Tk(canvas)
+    toolbar.update()
+    canvas.get_tk_widget().pack()
+    
+    # Iterate through tour frames
+    self.n_frames = tour_history.shape[-1]
+    self.frame = 0
+    
+    # resolve while loop in case of window closing
+    def cleanup():
+      self.frame = self.n_frames
+      pause_var.set(1)
+    parent.protocol("WM_DELETE_WINDOW", cleanup)
+    
+    def accept(event):
+      if event.key == "right" or event.key == "left":
+        # Keep selection if no datapoints are selected
+        if len(selector.ind) != 0:
+          self.obs_idx_ = selector.ind
+          #data_selection = selector.xys[selector.ind]
+        selector.disconnect()
+        fig.canvas.draw()
+        if event.key == "right":
+          self.frame+=1
+        if event.key == "left" and self.frame>0:
+          self.frame-=1         
+        pause_var.set(1)    
+    
+    while self.frame < self.n_frames:
+      # get tour data
+      plot_data = r.render_proj_inter(f, tour_history[:,:,self.frame], limits=limits, half_range=half_range)
+      # Unpack tour data
+      data_prj = plot_data["data_prj"]
+      axes_prj = plot_data["axes"]
+      circle_prj = plot_data["circle"]
+      x = data_prj.iloc[:,0]
+      y = data_prj.iloc[:,1]
+      obs = data_prj.iloc[:,2]
+          
+      # Make scatterplot
+      scat = ax.scatter(x, y)
+      ax.set_xlim(-limits*1.1,limits*1.1)
+      ax.set_ylim(-limits*1.1,limits*1.1)
+      
+      # Recolor preselected points
+      fc = scat.get_facecolors()
+      fc = np.tile(fc, (n_pts, 1))
+      fc[:, -1] = alpha_other
+      fc[self.obs_idx_ , -1] = 1      
+      scat.set_facecolors(fc)
+      # start Lasso selector
+      selector = SelectFromCollection(ax, scat, alpha_other)
+      
+      # plot axes and circle
+      for arrow in range(axes_prj.shape[0]):
+        ax.arrow(axes_prj.iloc[arrow,0],
+                 axes_prj.iloc[arrow,1],
+                 axes_prj.iloc[arrow,2],
+                 axes_prj.iloc[arrow,3])
+                   
+        ax.text(axes_prj.iloc[arrow,2],
+                axes_prj.iloc[arrow,3],
+                col_names[arrow])
+
+        ax.plot(circle_prj.iloc[:,0],
+                circle_prj.iloc[:,1])
+          
+      pause_var = tk.StringVar()
+              
+      fig.canvas.mpl_connect("key_press_event", accept)
+      ax.set_title(f"Frame {self.frame+1} out of {self.n_frames}"+
+                   f"\nPress right key for next frame"+
+                   f"\nPress left key for last frame")
+      parent.wait_variable(pause_var)
+      #ax.clear()
+    parent.destroy()
+
+def inter_lasso_tour(f, col_names, tour_history, half_range=None):
+  root = tk.Tk()
+  lasso_obj = lasso_selector(root,f,col_names,tour_history, half_range)
+  root.mainloop()
+```
+
+```{r}
+# Prepare data, generate and store a tour, animate the tour and store additional objects for later use
+library(tourr)
+set.seed(42)
+f <- apply(flea[,1:6], 2, function(x) (x-mean(x))/sd(x))
+tour_history <- save_history(f, 
+                             tour_path = guided_tour(holes()))
+animate(f,
+        tour_path = planned_tour(tour_history[,,length(tour_history)]))
+
+half_range <- max(sqrt(rowSums(f^2)))
+col_names <- colnames(f)
+```
+
+```{python}
+# Plot the last frame only. The resulting figure is same as the last frame from animate(), which serves as validation
+inter_lasso_tour(r.f,
+                 r.col_names,
+                 r.tour_history[:,:,-1],
+                 r.half_range)
+```
+
+```{r, echo=FALSE, out.width = '100%'}
+knitr::include_graphics("/home/matthias/Desktop/Work/google_COS/inter_tour_demo.gif", error = FALSE)
+```

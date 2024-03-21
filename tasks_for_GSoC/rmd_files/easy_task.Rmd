@@ -1,0 +1,24 @@
+---
+title: "easy_task"
+output: html_document
+date: "2024-03-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, python = reticulate::eng_python)
+```
+
+```{r}
+# Import libraries
+library(tourr)
+
+# Run and display grand tour on flea data
+f <- apply(flea[,1:6], 2, function(x) (x-mean(x))/sd(x))
+animate(f,
+        tour_path = grand_tour())
+
+# Run and display guided tour on flea data
+animate(f,
+        tour_path = guided_tour(holes()),
+        display = display_xy(col = flea$species))
+```

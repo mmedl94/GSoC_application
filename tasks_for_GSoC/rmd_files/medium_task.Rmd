@@ -1,0 +1,135 @@
+---
+title: "medium_task"
+output: html_document
+date: "2024-03-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, python = reticulate::eng_python)
+```
+
+```{r}
+# load R libraries
+if (!require("reticulate")) install.packages("reticulate")
+library(reticulate)
+```
+
+```{r}
+# setup conda environment
+env_name <- "r-pytourr"
+if (env_name %in% conda_list()$name == FALSE){
+  conda_create("r-pytourr")
+}
+use_condaenv("r-pytourr")
+
+#conda_install("r-pytourr", "pandas")
+#conda_install("r-pytourr", "numpy")
+#conda_install("r-pytourr", "matplotlib")
+#conda_install("r-pytourr", "tkinter")
+```
+
+```{python}
+# import python packages
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import tkinter as tk
+
+from matplotlib.backends.backend_tkagg import (FigureCanvasTkAgg, NavigationToolbar2Tk)
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+from matplotlib.backend_bases import key_press_handler
+from matplotlib.figure import Figure
+```
+
+
+```{python load python packages}
+# Helper class that manages the lasso selection
+class SelectFromCollection:
+  def __init__(self, ax, collection, alpha_other=0.3):
+    # initialize parameters
+    self.canvas = ax.figure.canvas
+    self.collection = collection
+    self.alpha_other = alpha_other
+    
+    # Get coordinates and number of data points
+    self.xys = collection.get_offsets()
+    self.Npts = len(self.xys)
+    
+    # Get color of data points in RGB and construct data frame describing coloration
+    self.fc = collection.get_facecolors()
+    if len(self.fc) == 0:
+      raise ValueError('Collection must have a facecolor')
+    elif len(self.fc) == 1:
+      self.fc = np.tile(self.fc, (self.Npts, 1))
+    
+    # initialize lasso selector
+    self.lasso = LassoSelector(ax, onselect=self.onselect)
+    self.ind = []
+  
+  # onselect governs what happens with selected data points
+  # changes alpha of selected data points
+  # saves indices of selected data points
+  def onselect(self, verts):
+    path = Path(verts)
+    self.ind = np.nonzero(path.contains_points(self.xys))[0]
+    self.fc[:, -1] = self.alpha_other
+    self.fc[self.ind, -1] = 1
+    self.collection.set_facecolors(self.fc)
+    self.canvas.draw_idle()
+    
+  # governs what happens when disconnected (after pressing "enter")
+  def disconnect(self):
+    self.lasso.disconnect_events()
+    self.canvas.draw_idle()
+
+# the interactive interface as tkinter object
+class lasso_selector(tk.Frame):
+    def __init__(self, parent, x, y):
+        tk.Frame.__init__(self, parent)
+        
+        # initialize scatterplot
+        fig, ax = plt.subplots()
+        scat = ax.scatter(x,y)
+
+        # initialize canvas to display said plot
+        canvas = FigureCanvasTkAgg(fig)
+        canvas.draw()
+        canvas.get_tk_widget().pack(side=tk.TOP, fill=tk.BOTH, expand=1)
+        
+        # initialize toolbar
+        toolbar = NavigationToolbar2Tk(canvas)
+        toolbar.update()
+        canvas.get_tk_widget().pack()
+        
+        # define what happens with point selection, the indices of selected
+        # datapoints are saved 
+        def accept(event):
+            if event.key == "enter":
+                self.data_selection = selector.xys[selector.ind]
+                selector.disconnect()
+                fig.canvas.draw()
+                parent.destroy()
+                
+        selector = SelectFromCollection(ax, scat)
+        fig.canvas.mpl_connect("key_press_event", accept)
+        ax.set_title("Press enter to accept selected points.")
+
+# function to call lasso_selector class
+def spawn_lasso_selector(x,y,):
+    root = tk.Tk()
+    lasso_obj = lasso_selector(root, x, y)
+    root.mainloop()
+    return lasso_obj.data_selection
+
+# Generate some data
+n = 50
+x = np.random.normal(0,1,n)
+y = np.random.normal(0,0.1,n)
+
+# spawn interactive plot and save coordinates of selected datapoints
+collected_data = spawn_lasso_selector(x,y)
+
+# print the coordinates of selected datapoints
+print(collected_data)
+```
