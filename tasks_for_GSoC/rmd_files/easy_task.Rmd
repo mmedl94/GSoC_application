@@ -1,5 +1,6 @@
 ---
 title: "easy_task"
+author: "Matthias Medl"
 output: html_document
 date: "2024-03-15"
 ---

@@ -1,5 +1,6 @@
 ---
 title: "medium_task"
+author: "Matthias Medl"
 output: html_document
 date: "2024-03-15"
 ---
@@ -14,19 +15,25 @@ if (!require("reticulate")) install.packages("reticulate")
 library(reticulate)
 ```
 
+Setup conda environment
+
 ```{r}
-# setup conda environment
+# check for python environment and create it if it doesn't exist
 env_name <- "r-pytourr"
-if (env_name %in% conda_list()$name == FALSE){
+if (env_name %in% conda_list()$name==FALSE){
   conda_create("r-pytourr")
 }
 use_condaenv("r-pytourr")
 
-#conda_install("r-pytourr", "pandas")
-#conda_install("r-pytourr", "numpy")
-#conda_install("r-pytourr", "matplotlib")
-#conda_install("r-pytourr", "tkinter")
+# check for required packages and install if neeeded
+package_names <- py_list_packages(envname = "r-pytourr")
+required_packages <- c("pandas", "numpy", "matplotlib")
+for (package in required_packages){
+  if (package %in% package_names$package==FALSE){conda_install("r-pytourr", package)}
+}
 ```
+
+Load required python packages
 
 ```{python}
 # import python packages
@@ -42,8 +49,9 @@ from matplotlib.backend_bases import key_press_handler
 from matplotlib.figure import Figure
 ```
 
+Define objects and functions required for interactivity
 
-```{python load python packages}
+```{python}
 # Helper class that manages the lasso selection
 class SelectFromCollection:
   def __init__(self, ax, collection, alpha_other=0.3):
@@ -121,7 +129,12 @@ def spawn_lasso_selector(x,y,):
     lasso_obj = lasso_selector(root, x, y)
     root.mainloop()
     return lasso_obj.data_selection
+```
 
+Generate sample dataset and show coordinates of selected data
+
+```{python}
+np.random.seed(seed=42)
 # Generate some data
 n = 50
 x = np.random.normal(0,1,n)
@@ -132,4 +145,10 @@ collected_data = spawn_lasso_selector(x,y)
 
 # print the coordinates of selected datapoints
 print(collected_data)
+```
+
+Show animation of lasso selection
+
+```{r, echo=FALSE, out.width = '100%'}
+knitr::include_graphics("/home/matthias/Desktop/Work/google_COS/inter_plot_demo.gif", error = FALSE)
 ```
