@@ -1,8 +1,6 @@
 ## pytourr
 The goal of the pytourr project is to develop interactive interfaces available through python packages such as [matplotlib](https://matplotlib.org/stable/) and [tkinter](https://docs.python.org/3/library/tk.html) for the [tourr](https://github.com/ggobi/tourr) R-package.
 
-![](https://github.com/mmedl94/pytourr/blob/main/demo/full_demo.gif)
-
 ## Google Code of Summer Submission
 The code used to complete the tasks as well as the raw .html files can be found at /tasks_for_GSoC. The rendered .html files can viewed by following the links below.
 
